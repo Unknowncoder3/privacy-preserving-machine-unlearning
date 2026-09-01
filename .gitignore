@@ -1,0 +1,15 @@
+data/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.ipynb_checkpoints/
+checkpoints/*.pt
+checkpoints/*.pth
+artifacts/split_manifest.json
+results/*.csv
+results/*.json
+results/*.png
+results/*.jpg
+.DS_Store

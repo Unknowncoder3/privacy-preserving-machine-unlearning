@@ -13,3 +13,4 @@ results/*.json
 results/*.png
 results/*.jpg
 .DS_Store
+._*

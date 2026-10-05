@@ -7,13 +7,12 @@ from torch.optim import SGD
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
 
-from datasets import load_cifar10, make_loader, make_split, seed_everything
-from models import CIFARResNet18
+from datasets import load_mnist, make_loader, make_split, seed_everything
+from models import MNISTCNN
 from evaluation import evaluate
 
 
 def get_device():
-    """Prefer CUDA, then Apple MPS, then CPU."""
     if torch.cuda.is_available():
         return torch.device("cuda")
     if torch.backends.mps.is_available():
@@ -27,37 +26,27 @@ def main():
     device = get_device()
     print(f"Using device: {device}")
 
-    train_ds, test_ds = load_cifar10(cfg["paths"]["data"])
-    retain, forget, _, _ = make_split(
+    train_ds, test_ds = load_mnist(cfg["paths"]["data"])
+    retain, _, _, _ = make_split(
         train_ds,
-        cfg["cifar10"]["forget_fraction"],
+        cfg["mnist"]["forget_fraction"],
         int(cfg["seed"]),
         Path(cfg["paths"]["artifacts"]) / "split_manifest.json",
     )
-    loader = make_loader(
-        retain,
-        cfg["training"]["batch_size"],
-        True,
-        cfg["training"]["num_workers"],
-    )
-    test_loader = make_loader(
-        test_ds,
-        cfg["training"]["batch_size"],
-        False,
-        cfg["training"]["num_workers"],
-    )
 
-    model = CIFARResNet18(cfg["cifar10"]["num_classes"]).to(device)
+    loader = make_loader(retain, cfg["training"]["batch_size"], True,
+                         cfg["training"]["num_workers"])
+    test_loader = make_loader(test_ds, cfg["training"]["batch_size"], False,
+                              cfg["training"]["num_workers"])
+
+    model = MNISTCNN(cfg["mnist"]["num_classes"]).to(device)
     optimizer = SGD(
         model.parameters(),
         lr=cfg["training"]["learning_rate"],
         momentum=cfg["training"]["momentum"],
         weight_decay=cfg["training"]["weight_decay"],
     )
-    scheduler = CosineAnnealingLR(
-        optimizer,
-        T_max=cfg["training"]["epochs"],
-    )
+    scheduler = CosineAnnealingLR(optimizer, T_max=cfg["training"]["epochs"])
     criterion = torch.nn.CrossEntropyLoss()
 
     start = time.perf_counter()
@@ -75,23 +64,17 @@ def main():
 
         scheduler.step()
         metrics = evaluate(model, test_loader, device)
-        print(
-            f"epoch={epoch + 1:02d} "
-            f"train_loss={running / total:.4f} "
-            f"test_acc={metrics['accuracy']:.4f}"
-        )
+        print(f"epoch={epoch + 1:02d} train_loss={running / total:.4f} "
+              f"test_acc={metrics['accuracy']:.4f}")
 
     elapsed = time.perf_counter() - start
     out = Path(cfg["paths"]["checkpoints"])
     out.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {
-            "model_state": model.state_dict(),
-            "config": cfg,
-            "train_seconds": elapsed,
-        },
-        out / "retrained.pt",
-    )
+    torch.save({
+        "model_state": model.state_dict(),
+        "config": cfg,
+        "train_seconds": elapsed,
+    }, out / "retrained.pt")
     print(f"Saved {out / 'retrained.pt'} in {elapsed / 60:.2f} min")
 
 

@@ -1,9 +1,9 @@
-"""Stable selective-gradient + retain-protected projected forgetting.
+"""Retain-protected projected forgetting with selectable scrub objectives.
 
-The proposed experimental variant keeps the bounded uniform-target forget
-objective, but removes the component of the forget gradient that conflicts
-with the retain objective. This allows stronger forgetting updates without
-deliberately moving against the retain gradient.
+The final experimental variant uses adaptive negative-margin scrubbing for
+forgotten samples while preserving retain behavior with CE+KD, selective
+gradient masking, conflict projection, normalization, and clipping.
+Earlier uniform and bounded-CE objectives remain available for ablations.
 """
 from __future__ import annotations
 

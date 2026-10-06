@@ -24,6 +24,7 @@ unlearning:
   learning_rate: 0.0005
   temperature: 4.0
   kd_weight: 0.5
-  forget_weight: 0.20
+  forget_weight: 0.30
+  project_conflicts: true
   gradient_threshold: 0.25
   max_grad_norm: 1.0

@@ -56,6 +56,17 @@ def margin_scrub_forget_loss(
     return F.relu(margin - float(target_margin)).mean()
 
 
+
+def forget_margin_statistics(logits: torch.Tensor, targets: torch.Tensor, target_margin: float):
+    """Return diagnostics for the adaptive margin-scrubbing objective."""
+    true_logits = logits.gather(1, targets.unsqueeze(1)).squeeze(1)
+    other_logits = logits.clone()
+    other_logits.scatter_(1, targets.unsqueeze(1), float("-inf"))
+    margin = true_logits - other_logits.max(dim=1).values
+    active = margin > float(target_margin)
+    return float(margin.detach().mean().item()), float(active.detach().float().mean().item())
+
+
 def project_conflicting_gradient(
     forget_grads,
     retain_grads,
@@ -206,12 +217,21 @@ def selective_forgetting_step(
     torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
     optimizer.step()
 
+    margin_mean = None
+    active_fraction = None
+    if forget_objective == "margin_scrub":
+        margin_mean, active_fraction = forget_margin_statistics(
+            forget_logits, fy, float(forget_margin_target)
+        )
+
     return {
         "retain_ce": float(retain_ce.detach().item()),
         "retain_kd": float(retain_kd.detach().item()),
         "forget_uniform": float(forget_loss.detach().item()) if forget_objective == "uniform" else None,
         "forget_loss": float(forget_loss.detach().item()),
         "forget_objective": forget_objective,
+        "forget_margin_mean": margin_mean,
+        "forget_active_fraction": active_fraction,
         "projection_applied": bool(projected),
         "forget_retain_dot": float(conflict_dot),
     }

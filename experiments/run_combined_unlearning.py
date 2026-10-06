@@ -85,6 +85,8 @@ def main():
         print(
             f"epoch={epoch + 1:02d} test_acc={test_metrics['accuracy']:.4f} "
             f"retain_ce={stats['retain_ce']:.4f} forget_loss={stats['forget_loss']:.4f} "
+            f"margin={stats['forget_margin_mean'] if stats['forget_margin_mean'] is not None else 0.0:.4f} "
+            f"active={stats['forget_active_fraction'] if stats['forget_active_fraction'] is not None else 0.0:.2%} "
             f"projected={stats['projection_applied']}"
         )
 

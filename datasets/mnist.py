@@ -55,12 +55,21 @@ def _read_idx(path: Path) -> np.ndarray:
 
 
 def _find_file(root: Path, stem: str) -> Path:
-    for candidate in (root / stem, root / f"{stem}.gz"):
+    # MNIST archives are commonly distributed with either the standard
+    # hyphenated names or names using a dot before the IDX dimension.
+    variants = (
+        stem,
+        stem.replace("-idx", ".idx"),
+        f"{stem}.gz",
+        f"{stem.replace('-idx', '.idx')}.gz",
+    )
+    for name in variants:
+        candidate = root / name
         if candidate.exists():
             return candidate
     raise FileNotFoundError(
         f"Missing MNIST file: {stem}(.gz) in {root}. "
-        "Expected the four standard MNIST IDX files."
+        "Expected the standard MNIST IDX files."
     )
 
 

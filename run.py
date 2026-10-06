@@ -11,6 +11,8 @@ STAGES = {
     "unlearn": "experiments.run_combined_unlearning",
     "benchmark": "evaluation.benchmark",
     "mia": "experiments.run_mia",
+    "similarity": "evaluation.unlearning_similarity",
+    "plots": "evaluation.plot_results",
 }
 
 

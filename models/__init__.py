@@ -1,3 +1,3 @@
-from .resnet import CIFARResNet18
+from .mnist_cnn import MNISTCNN
 
-__all__ = ["CIFARResNet18"]
+__all__ = ["MNISTCNN"]

@@ -1,74 +1,113 @@
-# Privacy-Preserving Machine Unlearning Using Knowledge Distillation and Selective Gradient Forgetting
+# Privacy-Preserving Machine Unlearning on MNIST
 
-A reproducible PyTorch research project for studying machine unlearning on CIFAR-10. The project compares a normally trained model, full retraining, gradient-based forgetting, knowledge distillation, and a combined selective-gradient-forgetting + knowledge-distillation approach.
+A reproducible PyTorch research project for studying whether a trained classifier can **forget a designated subset of training samples** while preserving useful knowledge and reducing privacy leakage at a lower cost than full retraining.
+
+The project is designed around a small, fully local **MNIST** benchmark so experiments can run comfortably on a laptop while still demonstrating the complete machine-unlearning workflow.
 
 ## Research question
 
-Can a trained image classifier forget a designated subset of training samples while retaining useful knowledge, reducing privacy leakage, and requiring less computation than full retraining?
+> Can a trained image classifier efficiently remove the influence of selected training samples while maintaining retain-set/test performance and reducing membership-inference leakage compared with a full-retraining oracle?
 
 ## Dataset
 
-CIFAR-10 is downloaded automatically by TorchVision. No dataset files are committed to GitHub.
+This repository does **not** commit the MNIST dataset to GitHub.
 
-- 50,000 training images
-- 10,000 test images
-- 10 classes
-- 32×32 RGB images
+Place the four standard MNIST IDX files locally under:
 
-By default the training set is deterministically partitioned into:
+```text
+data/
+└── MNIST/
+    ├── train-images-idx3-ubyte
+    ├── train-labels-idx1-ubyte
+    ├── t10k-images-idx3-ubyte
+    └── t10k-labels-idx1-ubyte
+```
 
-- 45,000 retain samples
-- 5,000 forget samples
+The loader also accepts the corresponding `.gz` files.
 
-The exact split is stored in `artifacts/split_manifest.json` after running the preparation script.
+MNIST contains 60,000 training images and 10,000 test images, each 28×28 grayscale, across 10 classes.
+
+By default, 10% of the training set is selected deterministically as the forget set:
+
+- 54,000 retain samples
+- 6,000 forget samples
+
+The exact indices are saved to `artifacts/split_manifest.json`.
+
+## What is being compared?
+
+The benchmark is built around three important references:
+
+1. **Original model** — trained on all training samples.
+2. **Retrained oracle** — trained from scratch after removing the forget set.
+3. **Unlearned model** — starts from the original model and performs selective gradient forgetting while using retain-set knowledge distillation.
+
+The architecture is intentionally modular so additional unlearning baselines can be added without changing the dataset pipeline.
+
+## Current proposed method
+
+The combined method uses:
+
+- forget-set gradient computation
+- magnitude-based selective gradient masking
+- gradient ascent on the forget objective
+- retain-set supervised learning
+- retain-set knowledge distillation from the original model
+
+This makes the method inspectable and suitable for ablation experiments.
+
+## Evaluation
+
+The project evaluates:
+
+- retain-set accuracy/loss
+- forget-set accuracy/loss
+- test accuracy/loss
+- mean confidence
+- membership-inference ROC-AUC
+- membership-inference attack accuracy
+- training/unlearning runtime
+
+The goal is not simply to make forget accuracy low. A useful unlearning method should approach the behavior of the retrained oracle **without unnecessarily sacrificing retained utility**. The project therefore treats retraining as a practical oracle and evaluates the unlearned model using both utility metrics and direct behavioral similarity.
 
 ## Project structure
 
 ```text
 privacy-preserving-machine-unlearning/
+├── attacks/
+│   └── membership_inference.py
 ├── configs/
 │   └── default.yaml
 ├── datasets/
 │   ├── __init__.py
-│   ├── cifar10.py
-│   └── split_dataset.py
-├── models/
-│   ├── __init__.py
-│   └── resnet.py
-├── unlearning/
-│   ├── __init__.py
-│   ├── distillation.py
-│   ├── gradient_forgetting.py
-│   └── combined.py
-├── attacks/
-│   ├── __init__.py
-│   └── membership_inference.py
+│   └── mnist.py
 ├── evaluation/
 │   ├── __init__.py
-│   ├── metrics.py
-│   └── benchmark.py
+│   ├── benchmark.py
+│   └── metrics.py
 ├── experiments/
 │   ├── prepare_data.py
 │   ├── train_original.py
 │   ├── train_retrained.py
-│   ├── run_gradient_forgetting.py
-│   ├── run_distillation.py
 │   ├── run_combined_unlearning.py
-│   ├── run_mia.py
-│   └── run_all.py
-├── visualization/
-│   └── plots.py
-├── artifacts/
-│   └── .gitkeep
-├── checkpoints/
-│   └── .gitkeep
-├── results/
-│   └── .gitkeep
+│   └── run_mia.py
+├── models/
+│   ├── __init__.py
+│   └── mnist_cnn.py
+├── unlearning/
+│   ├── combined.py
+│   ├── distillation.py
+│   └── gradient_forgetting.py
 ├── tests/
 │   └── test_pipeline.py
+├── data/                  # local only; ignored by Git
+├── checkpoints/           # generated; ignored
+├── artifacts/             # generated split manifest
+├── results/               # generated evaluation results
 ├── .gitignore
 ├── requirements.txt
-└── main.py
+├── main.py
+└── run.py
 ```
 
 ## Quick start
@@ -78,7 +117,7 @@ privacy-preserving-machine-unlearning/
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-# Windows PowerShell: .\.venv\Scripts\Activate.ps1
+# Windows PowerShell: .\\.venv\\Scripts\\Activate.ps1
 ```
 
 ### 2. Install dependencies
@@ -87,59 +126,143 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Prepare CIFAR-10 and the deterministic forget/retain split
+### 3. Put MNIST in the local data directory
+
+```text
+data/MNIST/
+```
+
+The dataset is intentionally excluded from GitHub by `.gitignore`.
+
+### 4. Validate the dataset and create the split
 
 ```bash
 python experiments/prepare_data.py
 ```
 
-### 4. Train the original model
+### 5. Train the original model
 
 ```bash
 python experiments/train_original.py
 ```
 
-### 5. Train the retrained reference model
+### 6. Train the retrained oracle
 
 ```bash
 python experiments/train_retrained.py
 ```
 
-### 6. Run the combined unlearning method
+### 7. Run the proposed unlearning method
 
 ```bash
 python experiments/run_combined_unlearning.py
 ```
 
-### 7. Evaluate privacy with membership inference
+### 8. Run the benchmark
+
+```bash
+python -m evaluation.benchmark
+```
+
+### 9. Run membership inference evaluation
 
 ```bash
 python experiments/run_mia.py
 ```
 
-### 8. Run the smoke test suite
+### 10. Compare unlearned behavior with the retrained oracle
+
+```bash
+python -m evaluation.unlearning_similarity
+```
+
+This reports prediction agreement, Jensen-Shannon divergence, probability MAE,
+logit cosine similarity, and confidence differences on the retain, forget, and
+test splits. The retrained model is the practical oracle because it was trained
+from scratch without the forget samples.
+
+### 11. Generate evaluation plots
+
+```bash
+python -m evaluation.plot_results
+```
+
+Plots are written under `results/plots/` and are generated only from local
+experiment outputs.
+
+### 12. Run tests
 
 ```bash
 pytest -q
 ```
 
-## Important reproducibility rules
+You can also use the unified CLI:
 
-- All experiments use explicit random seeds.
-- Dataset splits are saved and reused.
-- Checkpoints contain configuration and training metadata.
-- No fabricated result numbers are included in the repository. Results are generated by running the experiments.
+```bash
+python run.py prepare
+python run.py original
+python run.py retrained
+python run.py unlearn
+python run.py benchmark
+python run.py mia
+python run.py similarity
+python run.py plots
+```
 
-## Research methodology
+## Reproducibility
 
-The project uses three conceptual references:
+- Explicit random seed: 42 by default.
+- Deterministic retain/forget indices are written to a manifest.
+- Dataset files are local and are never required to be pushed to GitHub.
+- Checkpoints store the configuration used to produce them.
+- Result numbers are generated by experiments; the repository does not fabricate benchmark results.
 
-1. **Original model**: trained on all CIFAR-10 training samples.
-2. **Retrained oracle**: trained from scratch on retain samples only.
-3. **Unlearned model**: starts from the original model and applies selective gradient forgetting plus retain-set knowledge distillation.
+## Privacy evaluation note
 
-The evaluation focuses on forgetting, retained utility, test utility, runtime, and membership-inference risk.
+The membership-inference attack is a **confidence-based black-box baseline**, not a formal privacy guarantee. Lower attack performance after unlearning is evidence that the forgotten samples have become harder to distinguish from non-members, but it does not by itself prove complete removal of training influence.
 
-## Current status
+## Roadmap
 
-Phase 1 scaffold and reproducible CIFAR-10 data pipeline are implemented first. Experimental algorithms are intentionally implemented as modular components so each baseline can be validated independently before the final combined method is compared against the retrained oracle.
+- [x] Local MNIST IDX loader
+- [x] Deterministic retain/forget split
+- [x] Lightweight MNIST CNN
+- [x] Original vs retrained reference models
+- [x] Selective gradient + knowledge-distillation method
+- [x] Confidence-based membership inference baseline
+- [x] Retrained-oracle behavioral similarity evaluation
+- [x] Prediction agreement / JS divergence / probability MAE / logit similarity
+- [x] Runtime/accuracy/MIA plotting utilities
+- [x] Reproducible evaluation tests
+- [ ] Fine-tuning baseline
+- [ ] Plain gradient-ascent baseline
+- [ ] Standalone knowledge-distillation baseline
+- [ ] Ablation study for forget fraction and gradient threshold
+- [ ] Final experiment dashboard
+
+## Verified experiment results
+
+The current local MNIST run used a 10% forget split (6,000 forget / 54,000 retain samples).
+
+| Metric | Original | Retrained | Unlearned |
+|---|---:|---:|---:|
+| Retain accuracy | 98.513% | 98.452% | **98.567%** |
+| Forget accuracy | 98.567% | 97.983% | 98.617% |
+| Test accuracy | 98.200% | 98.090% | **98.230%** |
+| Forget mean confidence | 96.869% | 96.514% | 96.752% |
+| Confidence-MIA ROC-AUC | 0.4955 | 0.4952 | **0.4945** |
+
+The MIA result is a black-box confidence baseline, not a formal privacy guarantee.
+The high forget-set accuracy is not interpreted as proof of failed unlearning because
+the retrained oracle can also correctly classify many forgotten MNIST samples through
+generalization. The oracle-similarity evaluation is therefore part of the final
+workflow.
+
+## Current experiment status
+
+The checked-in implementation supports a complete local MNIST workflow: deterministic splitting, original/retrained reference training, selective-gradient + retain-KD unlearning, benchmark evaluation, confidence-based MIA, retrained-oracle similarity analysis, plotting, and automated tests. Generated checkpoints/results remain local and are intentionally ignored by Git.
+
+For a research report, the remaining optional work is **baseline/ablation expansion** (fine-tuning, plain gradient ascent, standalone KD, and multiple forget fractions/thresholds). These are extensions for comparative study rather than prerequisites for running the proposed method end-to-end.
+
+## License
+
+Add the license you want to use before distributing the project.

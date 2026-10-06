@@ -1,4 +1,4 @@
-"""Train the original ResNet-18 on all CIFAR-10 training samples."""
+"""Train the original MNIST CNN on all training samples."""
 from pathlib import Path
 import time
 import yaml
@@ -7,13 +7,12 @@ from torch.optim import SGD
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
 
-from datasets import load_cifar10, make_loader, seed_everything
-from models import CIFARResNet18
+from datasets import load_mnist, make_loader, seed_everything
+from models import MNISTCNN
 from evaluation import evaluate
 
 
 def get_device():
-    """Prefer CUDA, then Apple MPS, then CPU."""
     if torch.cuda.is_available():
         return torch.device("cuda")
     if torch.backends.mps.is_available():
@@ -42,21 +41,13 @@ def main():
     device = get_device()
     print(f"Using device: {device}")
 
-    train_ds, test_ds = load_cifar10(cfg["paths"]["data"])
-    loader = make_loader(
-        train_ds,
-        cfg["training"]["batch_size"],
-        True,
-        cfg["training"]["num_workers"],
-    )
-    test_loader = make_loader(
-        test_ds,
-        cfg["training"]["batch_size"],
-        False,
-        cfg["training"]["num_workers"],
-    )
+    train_ds, test_ds = load_mnist(cfg["paths"]["data"])
+    loader = make_loader(train_ds, cfg["training"]["batch_size"], True,
+                         cfg["training"]["num_workers"])
+    test_loader = make_loader(test_ds, cfg["training"]["batch_size"], False,
+                              cfg["training"]["num_workers"])
 
-    model = CIFARResNet18(cfg["cifar10"]["num_classes"]).to(device)
+    model = MNISTCNN(cfg["mnist"]["num_classes"]).to(device)
     optimizer = SGD(
         model.parameters(),
         lr=cfg["training"]["learning_rate"],
@@ -70,22 +61,17 @@ def main():
         loss = train(model, loader, optimizer, device)
         scheduler.step()
         metrics = evaluate(model, test_loader, device)
-        print(
-            f"epoch={epoch + 1:02d} train_loss={loss:.4f} "
-            f"test_acc={metrics['accuracy']:.4f}"
-        )
-    elapsed = time.perf_counter() - start
+        print(f"epoch={epoch + 1:02d} train_loss={loss:.4f} "
+              f"test_acc={metrics['accuracy']:.4f}")
 
+    elapsed = time.perf_counter() - start
     out = Path(cfg["paths"]["checkpoints"])
     out.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {
-            "model_state": model.state_dict(),
-            "config": cfg,
-            "train_seconds": elapsed,
-        },
-        out / "original.pt",
-    )
+    torch.save({
+        "model_state": model.state_dict(),
+        "config": cfg,
+        "train_seconds": elapsed,
+    }, out / "original.pt")
     print(f"Saved {out / 'original.pt'} in {elapsed / 60:.2f} min")
 
 

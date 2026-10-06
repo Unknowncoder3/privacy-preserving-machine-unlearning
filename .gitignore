@@ -12,4 +12,6 @@ results/*.csv
 results/*.json
 results/*.png
 results/*.jpg
+results/plots/
 .DS_Store
+._*

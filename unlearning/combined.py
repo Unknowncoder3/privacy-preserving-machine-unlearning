@@ -1,9 +1,8 @@
-"""Combined selective gradient forgetting + retain-set knowledge distillation.
+"""Stable selective-gradient + retain-set knowledge-distillation unlearning.
 
-The method starts from an already-trained model. For each step it computes a
-forget-set gradient, masks only high-magnitude forget-sensitive coordinates,
-and applies gradient ascent on those coordinates while optimizing the retain
-objective (classification + teacher distillation) normally.
+The forget objective is a bounded uniform-target objective rather than raw
+cross-entropy ascent. This avoids exploding logits while explicitly reducing
+confidence on the designated forget set.
 """
 from __future__ import annotations
 
@@ -20,42 +19,60 @@ def kd_loss(student_logits, teacher_logits, temperature: float):
     ) * (t * t)
 
 
-def selective_forgetting_step(model, teacher, retain_batch, forget_batch,
-                              optimizer, device, temperature=4.0,
-                              kd_weight=1.0, forget_weight=1.0,
-                              gradient_threshold=0.5):
-    """One combined unlearning step.
+def uniform_forget_loss(logits: torch.Tensor) -> torch.Tensor:
+    """KL(uniform || model prediction), minimized when predictions are uniform."""
+    log_probs = F.log_softmax(logits, dim=1)
+    classes = logits.size(1)
+    uniform = torch.full_like(log_probs, 1.0 / classes)
+    return F.kl_div(log_probs, uniform, reduction="batchmean")
 
-    `gradient_threshold` is a per-parameter quantile. A value of 0.5 keeps
-    roughly the upper half of forget-gradient magnitudes for tensors that are
-    non-empty. This is deliberately simple and inspectable for the baseline
-    research implementation; the threshold is exposed for ablation studies.
+
+def selective_forgetting_step(
+    model,
+    teacher,
+    retain_batch,
+    forget_batch,
+    optimizer,
+    device,
+    temperature=4.0,
+    kd_weight=0.5,
+    forget_weight=0.1,
+    gradient_threshold=0.25,
+    max_grad_norm=1.0,
+):
+    """One stable combined unlearning step.
+
+    Retain objective = CE + KD.
+    Forget objective = KL(uniform || prediction) on forget samples.
+
+    The forget gradient is selectively masked and normalized to the retain
+    gradient scale, then applied with a small bounded weight. Final gradient
+    clipping prevents a single batch from destabilizing the model.
     """
     model.train()
     teacher.eval()
     rx, ry = (v.to(device) for v in retain_batch)
-    fx, fy = (v.to(device) for v in forget_batch)
-
+    fx, _ = (v.to(device) for v in forget_batch)
     criterion = torch.nn.CrossEntropyLoss()
 
-    # Forget gradient: retain only coordinates with large magnitude.
+    # Forget-sensitive gradient.
     optimizer.zero_grad(set_to_none=True)
     forget_logits = model(fx)
-    forget_loss = criterion(forget_logits, fy)
+    forget_loss = uniform_forget_loss(forget_logits)
     forget_grads = torch.autograd.grad(
         forget_loss, tuple(model.parameters()), retain_graph=False, allow_unused=True
     )
 
     masks = []
     q = min(max(float(gradient_threshold), 0.0), 1.0)
-    for p, g in zip(model.parameters(), forget_grads):
+    for g in forget_grads:
         if g is None:
             masks.append(None)
             continue
         threshold = torch.quantile(g.detach().abs().flatten(), q)
         masks.append((g.detach().abs() >= threshold).to(g.dtype))
 
-    # Retain objective: supervised loss + teacher distillation.
+    # Retain objective.
     optimizer.zero_grad(set_to_none=True)
     student_logits = model(rx)
     with torch.no_grad():
@@ -67,24 +84,38 @@ def selective_forgetting_step(model, teacher, retain_batch, forget_batch,
         retain_loss, tuple(model.parameters()), retain_graph=False, allow_unused=True
     )
 
-    # Directly assign the combined gradient: retain gradient minus selected
-    # forget gradient. Subtracting the forget gradient is gradient ascent on
-    # the forget loss, encouraging the model to reduce confidence on forgotten
-    # examples while preserving the retain objective.
+    # Match the masked forget gradient to the retain-gradient scale.
+    retain_sq = torch.zeros((), device=device)
+    forget_sq = torch.zeros((), device=device)
+    masked_forget = []
+    for rg, fg, mask in zip(retain_grads, forget_grads, masks):
+        if rg is not None:
+            retain_sq = retain_sq + rg.detach().pow(2).sum()
+        if fg is not None and mask is not None:
+            mfg = fg.detach() * mask
+            masked_forget.append(mfg)
+            forget_sq = forget_sq + mfg.pow(2).sum()
+        else:
+            masked_forget.append(None)
+
+    scale = torch.sqrt(retain_sq + 1e-12) / torch.sqrt(forget_sq + 1e-12)
+
     optimizer.zero_grad(set_to_none=True)
-    for p, rg, fg, mask in zip(model.parameters(), retain_grads, forget_grads, masks):
-        if rg is None and fg is None:
+    for p, rg, mfg in zip(model.parameters(), retain_grads, masked_forget):
+        if rg is None and mfg is None:
             p.grad = None
         elif rg is None:
-            p.grad = -forget_weight * fg * mask
-        elif fg is None:
+            p.grad = forget_weight * scale * mfg
+        elif mfg is None:
             p.grad = rg
         else:
-            p.grad = rg - forget_weight * fg * mask
+            p.grad = rg + forget_weight * scale * mfg
+
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
     optimizer.step()
 
     return {
         "retain_ce": float(retain_ce.detach().item()),
         "retain_kd": float(retain_kd.detach().item()),
-        "forget_ce": float(forget_loss.detach().item()),
+        "forget_uniform": float(forget_loss.detach().item()),
     }

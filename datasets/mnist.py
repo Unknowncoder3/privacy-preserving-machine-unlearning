@@ -65,7 +65,7 @@ def _find_file(root: Path, stem: str) -> Path:
     )
     for name in variants:
         candidate = root / name
-        if candidate.exists():
+        if candidate.is_file():
             return candidate
     raise FileNotFoundError(
         f"Missing MNIST file: {stem}(.gz) in {root}. "

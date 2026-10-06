@@ -73,13 +73,14 @@ def main():
                 kd_weight=cfg["unlearning"]["kd_weight"],
                 forget_weight=cfg["unlearning"]["forget_weight"],
                 gradient_threshold=cfg["unlearning"]["gradient_threshold"],
+                max_grad_norm=cfg["unlearning"]["max_grad_norm"],
             )
             steps += 1
 
         test_metrics = evaluate(model, test_loader, device)
         print(
             f"epoch={epoch + 1:02d} test_acc={test_metrics['accuracy']:.4f} "
-            f"retain_ce={stats['retain_ce']:.4f} forget_ce={stats['forget_ce']:.4f}"
+            f"retain_ce={stats['retain_ce']:.4f} forget_uniform={stats['forget_uniform']:.4f}"
         )
 
     out = Path(cfg["paths"]["checkpoints"])

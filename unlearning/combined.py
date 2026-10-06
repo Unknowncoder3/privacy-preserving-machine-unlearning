@@ -30,14 +30,30 @@ def uniform_forget_loss(logits: torch.Tensor) -> torch.Tensor:
 
 
 def bounded_ce_forget_loss(logits: torch.Tensor, targets: torch.Tensor, target_ce: float) -> torch.Tensor:
-    """Bounded CE-ascent objective for label-aware forgetting.
-
-    Minimizing negative capped cross-entropy performs gradient ascent on forget
-    samples until their CE reaches target_ce; after that the gradient is zero.
-    """
+    """Bounded CE-ascent objective for label-aware forgetting."""
     ce = F.cross_entropy(logits, targets, reduction="none")
     cap = torch.full_like(ce, float(target_ce))
     return -torch.minimum(ce, cap).mean()
+
+
+def margin_scrub_forget_loss(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    target_margin: float = 0.0,
+) -> torch.Tensor:
+    """Sample-wise hinge loss that removes the true-class decision margin.
+
+    The loss is positive while a forgotten sample's true-class logit remains
+    above its strongest competing logit by more than target_margin. Minimizing
+    this objective therefore scrubs the decision margin instead of merely
+    matching a fixed output distribution.
+    """
+    true_logits = logits.gather(1, targets.unsqueeze(1)).squeeze(1)
+    other_logits = logits.clone()
+    other_logits.scatter_(1, targets.unsqueeze(1), float("-inf"))
+    max_other = other_logits.max(dim=1).values
+    margin = true_logits - max_other
+    return F.relu(margin - float(target_margin)).mean()
 
 
 def project_conflicting_gradient(
@@ -92,6 +108,7 @@ def selective_forgetting_step(
     forget_weight=0.1,
     forget_objective="uniform",
     forget_ce_target=None,
+    forget_margin_target=0.0,
     gradient_threshold=0.25,
     max_grad_norm=1.0,
     project_conflicts=False,
@@ -118,6 +135,8 @@ def selective_forgetting_step(
     elif forget_objective == "bounded_ce":
         target_ce = math.log(forget_logits.size(1)) if forget_ce_target is None else float(forget_ce_target)
         forget_loss = bounded_ce_forget_loss(forget_logits, fy, target_ce)
+    elif forget_objective == "margin_scrub":
+        forget_loss = margin_scrub_forget_loss(forget_logits, fy, float(forget_margin_target))
     else:
         raise ValueError(f"Unknown forget_objective: {forget_objective}")
     forget_grads = torch.autograd.grad(

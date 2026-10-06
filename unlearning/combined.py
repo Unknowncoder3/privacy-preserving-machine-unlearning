@@ -67,20 +67,39 @@ def selective_forgetting_step(model, teacher, retain_batch, forget_batch,
         retain_loss, tuple(model.parameters()), retain_graph=False, allow_unused=True
     )
 
-    # Directly assign the combined gradient: retain gradient minus selected
-    # forget gradient. Subtracting the forget gradient is gradient ascent on
-    # the forget loss, encouraging the model to reduce confidence on forgotten
-    # examples while preserving the retain objective.
+    # Normalize the masked forget gradient to the scale of the retain
+    # gradient before combining them. Without this, the raw forget gradient
+    # can be orders of magnitude smaller than the retain gradient, making the
+    # "forget" term effectively disappear even when forget_weight is nonzero.
+    masked_forget = []
+    retain_sq = torch.zeros((), device=device)
+    forget_sq = torch.zeros((), device=device)
+    for rg, fg, mask in zip(retain_grads, forget_grads, masks):
+        if rg is not None:
+            retain_sq = retain_sq + rg.detach().pow(2).sum()
+        if fg is not None and mask is not None:
+            masked_forget.append(fg.detach() * mask)
+            forget_sq = forget_sq + (fg.detach() * mask).pow(2).sum()
+        else:
+            masked_forget.append(None)
+
+    retain_norm = torch.sqrt(retain_sq + 1e-12)
+    forget_norm = torch.sqrt(forget_sq + 1e-12)
+    scale = retain_norm / forget_norm
+
+    # Directly assign the combined gradient: retain gradient minus the
+    # normalized selected forget gradient. This is gradient ascent on the
+    # forget loss while preserving the retain objective.
     optimizer.zero_grad(set_to_none=True)
-    for p, rg, fg, mask in zip(model.parameters(), retain_grads, forget_grads, masks):
-        if rg is None and fg is None:
+    for p, rg, mfg in zip(model.parameters(), retain_grads, masked_forget):
+        if rg is None and mfg is None:
             p.grad = None
         elif rg is None:
-            p.grad = -forget_weight * fg * mask
-        elif fg is None:
+            p.grad = -forget_weight * scale * mfg
+        elif mfg is None:
             p.grad = rg
         else:
-            p.grad = rg - forget_weight * fg * mask
+            p.grad = rg - forget_weight * scale * mfg
     optimizer.step()
 
     return {

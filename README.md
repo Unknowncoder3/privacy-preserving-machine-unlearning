@@ -1,202 +1,274 @@
-# Privacy-Preserving Machine Unlearning on MNIST
+# 🛡️ Privacy-Preserving Machine Unlearning
 
-A reproducible PyTorch research project for studying whether a trained classifier can **forget a designated subset of training samples** while preserving useful knowledge and reducing privacy leakage at a lower cost than full retraining.
+<p align="center">
+  <b>Retain-protected machine unlearning with selective gradient scrubbing, oracle evaluation, and privacy testing.</b>
+</p>
 
-The project is designed around a small, fully local **MNIST** benchmark so experiments can run comfortably on a laptop while still demonstrating the complete machine-unlearning workflow.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.x-3776AB?logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/PyTorch-MNIST-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch">
+  <img src="https://img.shields.io/badge/Machine%20Learning-Unlearning-6f42c1" alt="Machine Learning">
+  <img src="https://img.shields.io/badge/Privacy-MIA-2ea44f" alt="Privacy">
+  <img src="https://img.shields.io/badge/Tests-6%2F6%20passing-brightgreen" alt="Tests">
+</p>
 
-## Research question
+<p align="center">
+  <a href="https://github.com/Unknowncoder3/privacy-preserving-machine-unlearning">Repository</a> ·
+  <a href="https://github.com/Unknowncoder3/privacy-preserving-machine-unlearning/tree/improve/projected-forgetting">Experimental Branch</a>
+</p>
 
-> Can a trained image classifier efficiently remove the influence of selected training samples while maintaining retain-set/test performance and reducing membership-inference leakage compared with a full-retraining oracle?
+---
 
-## Dataset
+## 🚀 Project at a glance
 
-This repository does **not** commit the MNIST dataset to GitHub.
+Machine learning models can retain information from training data long after that data should be removed. **Machine unlearning** studies how to remove the influence of selected training samples without retraining the entire model from scratch.
 
-Place the four standard MNIST IDX files locally under:
+This project builds a complete, reproducible **PyTorch + MNIST** benchmark for that problem:
 
-```text
-data/
-└── MNIST/
-    ├── train-images-idx3-ubyte
-    ├── train-labels-idx1-ubyte
-    ├── t10k-images-idx3-ubyte
-    └── t10k-labels-idx1-ubyte
-```
+- deterministic **retain / forget** dataset splitting
+- original-model and retrained-oracle baselines
+- a **V5 retain-protected gradient unlearning** method
+- confidence-based **membership inference attack (MIA)** evaluation
+- direct behavioral comparison against the retrained oracle
+- automated tests and GitHub Actions CI
+- laptop-friendly experiments using **Apple MPS**
 
-The loader also accepts the corresponding `.gz` files.
+> **Research question:** Can selected training samples be forgotten while preserving retained utility and reducing observable privacy leakage at a lower cost than full retraining?
 
-MNIST contains 60,000 training images and 10,000 test images, each 28×28 grayscale, across 10 classes.
+---
 
-By default, 10% of the training set is selected deterministically as the forget set:
+## 📊 Key results
 
+The final V5 experiment used a deterministic **10% forget split**: 6,000 forget samples and 54,000 retain samples.
+
+| Metric | V5 Result |
+|---|---:|
+| 🎯 Retain accuracy | **98.56%** |
+| 🧪 Test accuracy | **98.22%** |
+| 🔐 Forget-set mean confidence | **96.69%** |
+| 🕵️ Confidence-MIA ROC-AUC | **0.4934** |
+| ✅ Automated tests | **6 / 6 passing** |
+
+### Why these numbers matter
+
+- **Utility stayed high:** the model retained 98.56% accuracy on the retained training data.
+- **Generalization stayed stable:** test accuracy remained 98.22%.
+- **MIA was near random:** an ROC-AUC of 0.4934 is close to the 0.50 random-guess baseline.
+- **No privacy overclaim:** these results do **not** constitute a formal privacy guarantee or proof of complete unlearning.
+
+---
+
+## 💡 Why I built this
+
+This project combines several areas that matter in practical ML engineering:
+
+**Machine Learning** → model training, loss design, knowledge distillation  
+**Privacy** → membership inference and data-removal evaluation  
+**Research Engineering** → controlled experiments, ablations, reproducibility  
+**Software Engineering** → modular Python code, CLI workflows, tests, CI
+
+The goal is not just to train a model—it is to build an **inspectable experimental pipeline** where an unlearning method can be trained, measured, compared, and reproduced.
+
+---
+
+## 🧠 What I built
+
+### 1. Deterministic local benchmark
+
+A raw IDX MNIST loader keeps the experiment fully local and reproducible.
+
+- 60,000 original training samples
 - 54,000 retain samples
 - 6,000 forget samples
+- 10,000 test samples
+- deterministic split seed: **42**
+- split indices saved to `artifacts/split_manifest.json`
 
-The exact indices are saved to `artifacts/split_manifest.json`.
+The dataset itself is intentionally excluded from Git.
 
-## What is being compared?
+### 2. Three-model evaluation setup
 
-The benchmark is built around three important references:
+| Model | Purpose |
+|---|---|
+| **Original** | Trained using the complete training set |
+| **Retrained oracle** | Trained from scratch after removing the forget set |
+| **V5 unlearned** | Starts from the original model and selectively removes forget-set influence |
 
-1. **Original model** — trained on all training samples.
-2. **Retrained oracle** — trained from scratch after removing the forget set.
-3. **Unlearned model** — starts from the original model and performs selective gradient forgetting while using retain-set knowledge distillation.
+The retrained model acts as a **practical behavioral oracle**, not a mathematical proof of what the unlearned model must look like.
 
-The architecture is intentionally modular so additional unlearning baselines can be added without changing the dataset pipeline.
+### 3. V5 retain-protected unlearning
 
-## Current proposed method
+The final method combines:
 
-The combined method uses:
-
-- forget-set gradient computation
-- magnitude-based selective gradient masking
-- gradient ascent on the forget objective
+- adaptive negative-margin scrubbing on forget samples
+- selective gradient masking
 - retain-set supervised learning
-- retain-set knowledge distillation from the original model
+- knowledge distillation from the original model
+- conflict projection between forget and retain gradients
+- gradient normalization
+- gradient clipping
 
-This makes the method inspectable and suitable for ablation experiments.
+This makes the forgetting process explicit at the gradient level rather than treating unlearning as ordinary fine-tuning.
 
-## Evaluation
+---
 
-The project evaluates:
+## 🔬 How V5 works
 
-- retain-set accuracy/loss
-- forget-set accuracy/loss
-- test accuracy/loss
-- mean confidence
-- membership-inference ROC-AUC
-- membership-inference attack accuracy
-- training/unlearning runtime
+```mermaid
+flowchart LR
+  A[Original Model] --> B{V5 Unlearning}
+  R[Retain Set] --> C[CE + Knowledge Distillation]
+  F[Forget Set] --> D[Adaptive Negative-Margin Scrubbing]
+  C --> E[Selective Gradient Masking]
+  D --> E
+  E --> G[Conflict Projection]
+  G --> H[Gradient Normalization + Clipping]
+  H --> I[Unlearned Model]
+  I --> J[Benchmark + MIA + Oracle Similarity]
+  O[Retrained Oracle] --> J
+```
 
-The goal is not simply to make forget accuracy low. A useful unlearning method should approach the behavior of the retrained oracle **without unnecessarily sacrificing retained utility**. The project therefore treats retraining as a practical oracle and evaluates the unlearned model using both utility metrics and direct behavioral similarity.
+### Forget objective
 
-## Project structure
+For each forget sample:
 
 ```text
-privacy-preserving-machine-unlearning/
-├── attacks/
-│   └── membership_inference.py
-├── configs/
-│   └── default.yaml
-├── datasets/
-│   ├── __init__.py
-│   └── mnist.py
-├── evaluation/
-│   ├── __init__.py
-│   ├── benchmark.py
-│   └── metrics.py
-├── experiments/
-│   ├── prepare_data.py
-│   ├── train_original.py
-│   ├── train_retrained.py
-│   ├── run_combined_unlearning.py
-│   └── run_mia.py
-├── models/
-│   ├── __init__.py
-│   └── mnist_cnn.py
-├── unlearning/
-│   ├── combined.py
-│   ├── distillation.py
-│   └── gradient_forgetting.py
-├── tests/
-│   └── test_pipeline.py
-├── data/                  # local only; ignored by Git
-├── checkpoints/           # generated; ignored
-├── artifacts/             # generated split manifest
-├── results/               # generated evaluation results
-├── .gitignore
-├── requirements.txt
-├── main.py
-└── run.py
+margin = true_class_logit - strongest_competitor_logit
 ```
 
-## Quick start
+The final V5 target is:
 
-### 1. Create an environment
+```text
+target margin = -0.5
+```
+
+The objective remains active while the true-class margin is above that target. In the final run, the measured margin remained strongly positive, meaning the scrubbing objective was still active rather than artificially reported as complete.
+
+---
+
+## 🧪 Final benchmark
+
+| Metric | Original | Retrained Oracle | V5 Unlearned |
+|---|---:|---:|---:|
+| Retain accuracy | 98.513% | 98.452% | **98.565%** |
+| Forget accuracy | 98.567% | 97.983% | 98.583% |
+| Test accuracy | 98.200% | 98.090% | **98.220%** |
+| Forget confidence | 96.869% | 96.514% | **96.692%** |
+| Confidence-MIA ROC-AUC | 0.4955 | 0.4952 | **0.4934** |
+
+### Oracle similarity on the forget set
+
+| Metric | V5 vs Retrained | V5 vs Original |
+|---|---:|---:|
+| Prediction agreement | 99.15% | **99.83%** |
+| Jensen-Shannon divergence | 0.001226 | **0.000135** |
+| Probability MAE | 0.002301 | **0.000751** |
+| Logit cosine similarity | 0.99633 | **0.99942** |
+
+### What the similarity tells us
+
+The V5 model preserves the original model's behavior extremely well, which is positive for utility—but it also means its forget-set behavior is **still substantially closer to the original than to the retrained oracle**.
+
+That is an important research finding.
+
+> **Conclusion:** V5 is a strong, stable engineering baseline with excellent utility preservation and near-random confidence-MIA performance, but it should be described as **partial/observable forgetting**, not as proof of complete machine unlearning.
+
+---
+
+## 📈 Method evolution
+
+The project deliberately evolved through controlled experiments instead of changing everything at once.
+
+| Version | Main idea | Result |
+|---|---|---|
+| **V1** | Bounded uniform forgetting + selective gradient masking | Stable baseline |
+| **V2** | Added retain-protected conflict projection | Small directional improvement |
+| **V3** | Bounded CE-based forgetting | More aggressive objective, limited oracle movement |
+| **V4** | Margin scrubbing | Better-controlled forgetting objective |
+| **V5** | Negative-margin target + projection + diagnostics | **Final stable method** |
+
+**V5 is the final experimental version in this branch.**
+
+---
+
+## 🔐 Privacy evaluation
+
+The project includes a confidence-based black-box membership inference attack.
+
+The attack asks whether a model's confidence can distinguish training members from non-members.
+
+A useful result should move attack performance toward random guessing:
+
+```text
+Random baseline ≈ 0.50 ROC-AUC
+V5 result      = 0.4934 ROC-AUC
+```
+
+However:
+
+> **MIA is an evaluation signal, not a formal privacy guarantee.**
+
+A low attack score alone cannot prove that training influence has been completely removed.
+
+---
+
+## 🧪 Testing & reproducibility
+
+The repository includes automated pipeline tests covering the core dataset/model workflow.
+
+Current status:
+
+```text
+6 passed in 0.87s
+```
+
+Run locally with:
 
 ```bash
+KMP_DUPLICATE_LIB_OK=TRUE PYTHONPATH=. pytest -q
+```
+
+The repository also includes GitHub Actions CI for automated testing.
+
+### Reproducibility features
+
+- fixed random seed: **42**
+- deterministic retain/forget split
+- saved split manifest
+- configuration-driven experiments
+- generated checkpoints and results kept outside Git
+- local MNIST dataset, so no external dataset download is required by the experiment
+
+---
+
+## ⚡ Quick start
+
+### 1. Clone and install
+
+```bash
+git clone https://github.com/Unknowncoder3/privacy-preserving-machine-unlearning.git
+cd privacy-preserving-machine-unlearning
+
 python -m venv .venv
 source .venv/bin/activate
-# Windows PowerShell: .\\.venv\\Scripts\\Activate.ps1
-```
-
-### 2. Install dependencies
-
-```bash
 pip install -r requirements.txt
 ```
 
-### 3. Put MNIST in the local data directory
+### 2. Add MNIST locally
+
+Place the four standard IDX files under:
 
 ```text
 data/MNIST/
+├── train-images-idx3-ubyte
+├── train-labels-idx1-ubyte
+├── t10k-images-idx3-ubyte
+└── t10k-labels-idx1-ubyte
 ```
 
-The dataset is intentionally excluded from GitHub by `.gitignore`.
+The loader also accepts `.gz` files.
 
-### 4. Validate the dataset and create the split
-
-```bash
-python experiments/prepare_data.py
-```
-
-### 5. Train the original model
-
-```bash
-python experiments/train_original.py
-```
-
-### 6. Train the retrained oracle
-
-```bash
-python experiments/train_retrained.py
-```
-
-### 7. Run the proposed unlearning method
-
-```bash
-python experiments/run_combined_unlearning.py
-```
-
-### 8. Run the benchmark
-
-```bash
-python -m evaluation.benchmark
-```
-
-### 9. Run membership inference evaluation
-
-```bash
-python experiments/run_mia.py
-```
-
-### 10. Compare unlearned behavior with the retrained oracle
-
-```bash
-python -m evaluation.unlearning_similarity
-```
-
-This reports prediction agreement, Jensen-Shannon divergence, probability MAE,
-logit cosine similarity, and confidence differences on the retain, forget, and
-test splits. The retrained model is the practical oracle because it was trained
-from scratch without the forget samples.
-
-### 11. Generate evaluation plots
-
-```bash
-python -m evaluation.plot_results
-```
-
-Plots are written under `results/plots/` and are generated only from local
-experiment outputs.
-
-### 12. Run tests
-
-```bash
-pytest -q
-```
-
-You can also use the unified CLI:
+### 3. Run the full workflow
 
 ```bash
 python run.py prepare
@@ -209,60 +281,139 @@ python run.py similarity
 python run.py plots
 ```
 
-## Reproducibility
+### macOS / Apple Silicon
 
-- Explicit random seed: 42 by default.
-- Deterministic retain/forget indices are written to a manifest.
-- Dataset files are local and are never required to be pushed to GitHub.
-- Checkpoints store the configuration used to produce them.
-- Result numbers are generated by experiments; the repository does not fabricate benchmark results.
+The experiments were run on an Apple Silicon MacBook Air using **MPS**.
 
-## Privacy evaluation note
+If your local environment encounters the OpenMP duplicate-runtime issue seen during development, the temporary command prefix used for this project is:
 
-The membership-inference attack is a **confidence-based black-box baseline**, not a formal privacy guarantee. Lower attack performance after unlearning is evidence that the forgotten samples have become harder to distinguish from non-members, but it does not by itself prove complete removal of training influence.
+```bash
+KMP_DUPLICATE_LIB_OK=TRUE PYTHONPATH=. python ...
+```
 
-## Roadmap
+This is a development workaround rather than a recommended production configuration.
 
-- [x] Local MNIST IDX loader
-- [x] Deterministic retain/forget split
-- [x] Lightweight MNIST CNN
-- [x] Original vs retrained reference models
-- [x] Selective gradient + knowledge-distillation method
-- [x] Confidence-based membership inference baseline
-- [x] Retrained-oracle behavioral similarity evaluation
-- [x] Prediction agreement / JS divergence / probability MAE / logit similarity
-- [x] Runtime/accuracy/MIA plotting utilities
-- [x] Reproducible evaluation tests
-- [ ] Fine-tuning baseline
-- [ ] Plain gradient-ascent baseline
-- [ ] Standalone knowledge-distillation baseline
-- [ ] Ablation study for forget fraction and gradient threshold
-- [ ] Final experiment dashboard
+---
 
-## Verified experiment results
+## 🧰 Tech stack
 
-The current local MNIST run used a 10% forget split (6,000 forget / 54,000 retain samples).
+| Area | Tools |
+|---|---|
+| Language | **Python** |
+| Deep learning | **PyTorch** |
+| Dataset | **MNIST** |
+| Hardware acceleration | **Apple MPS** |
+| Numerical computing | **NumPy** |
+| Configuration | **YAML / PyYAML** |
+| Testing | **PyTest** |
+| CI | **GitHub Actions** |
+| Version control | **Git / GitHub** |
 
-| Metric | Original | Retrained | Unlearned |
-|---|---:|---:|---:|
-| Retain accuracy | 98.513% | 98.452% | **98.567%** |
-| Forget accuracy | 98.567% | 97.983% | 98.617% |
-| Test accuracy | 98.200% | 98.090% | **98.230%** |
-| Forget mean confidence | 96.869% | 96.514% | 96.752% |
-| Confidence-MIA ROC-AUC | 0.4955 | 0.4952 | **0.4945** |
+---
 
-The MIA result is a black-box confidence baseline, not a formal privacy guarantee.
-The high forget-set accuracy is not interpreted as proof of failed unlearning because
-the retrained oracle can also correctly classify many forgotten MNIST samples through
-generalization. The oracle-similarity evaluation is therefore part of the final
-workflow.
+## 🗂️ Repository structure
 
-## Current experiment status
+```text
+privacy-preserving-machine-unlearning/
+├── attacks/
+│   └── membership_inference.py
+├── configs/
+│   └── default.yaml
+├── datasets/
+│   ├── __init__.py
+│   └── mnist.py
+├── evaluation/
+│   ├── benchmark.py
+│   ├── metrics.py
+│   ├── unlearning_similarity.py
+│   ├── similarity.py
+│   └── plot_results.py
+├── experiments/
+│   ├── prepare_data.py
+│   ├── train_original.py
+│   ├── train_retrained.py
+│   ├── run_combined_unlearning.py
+│   └── run_mia.py
+├── models/
+│   └── mnist_cnn.py
+├── unlearning/
+│   ├── combined.py
+│   ├── distillation.py
+│   └── gradient_forgetting.py
+├── tests/
+│   └── test_pipeline.py
+├── data/                  # local only; ignored by Git
+├── checkpoints/           # generated; ignored
+├── artifacts/             # generated metadata
+├── results/               # generated evaluation results
+├── requirements.txt
+├── main.py
+└── run.py
+```
 
-The checked-in implementation supports a complete local MNIST workflow: deterministic splitting, original/retrained reference training, selective-gradient + retain-KD unlearning, benchmark evaluation, confidence-based MIA, retrained-oracle similarity analysis, plotting, and automated tests. Generated checkpoints/results remain local and are intentionally ignored by Git.
+---
 
-For a research report, the remaining optional work is **baseline/ablation expansion** (fine-tuning, plain gradient ascent, standalone KD, and multiple forget fractions/thresholds). These are extensions for comparative study rather than prerequisites for running the proposed method end-to-end.
+## 🎯 What I learned / demonstrated
 
-## License
+This project gave me hands-on experience with:
 
-Add the license you want to use before distributing the project.
+- designing an ML experiment around a measurable research question
+- implementing custom dataset loading and deterministic data partitioning
+- PyTorch model training on Apple Silicon / MPS
+- loss-function and gradient-level algorithm design
+- knowledge distillation
+- privacy evaluation with membership inference
+- oracle-based behavioral analysis
+- controlled method iteration and ablation tracking
+- experiment reproducibility
+- automated testing and CI
+- communicating technical limitations without overclaiming results
+
+---
+
+## ⚠️ Limitations
+
+This benchmark is intentionally small and laptop-friendly.
+
+The current results do **not** establish:
+
+- a formal differential-privacy guarantee
+- exact removal of every training influence
+- superiority over all existing unlearning algorithms
+- scalability to large production models
+- robustness across multiple datasets or architectures
+
+The retrained model is used as a practical oracle, while MIA is used as a black-box privacy signal. Stronger claims would require broader baselines, multiple datasets, more attack models, and potentially formal guarantees.
+
+---
+
+## 🔭 Future work
+
+Potential research extensions include:
+
+- fine-tuning baseline
+- plain gradient-ascent baseline
+- standalone knowledge-distillation baseline
+- multiple forget fractions
+- gradient-threshold ablations
+- additional membership-inference attacks
+- larger datasets and architectures
+- a final experiment dashboard
+
+These are extensions for comparative research—not prerequisites for reproducing the current V5 pipeline.
+
+---
+
+## 👨‍💻 About
+
+**Built by Snehasish Das**
+
+GitHub: [@Unknowncoder3](https://github.com/Unknowncoder3)
+
+This repository is intended to demonstrate practical **machine learning, privacy, research experimentation, and software engineering** skills through a reproducible end-to-end project.
+
+---
+
+## 📌 License
+
+A license has not yet been specified for this repository. Add the license you want to use before distributing the project.

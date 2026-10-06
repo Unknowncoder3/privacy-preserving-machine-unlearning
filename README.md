@@ -68,7 +68,7 @@ The project evaluates:
 - membership-inference attack accuracy
 - training/unlearning runtime
 
-The goal is not simply to make forget accuracy low. A useful unlearning method should approach the behavior of the retrained oracle **without unnecessarily sacrificing retained utility**.
+The goal is not simply to make forget accuracy low. A useful unlearning method should approach the behavior of the retrained oracle **without unnecessarily sacrificing retained utility**. The project therefore treats retraining as a practical oracle and evaluates the unlearned model using both utility metrics and direct behavioral similarity.
 
 ## Project structure
 
@@ -168,6 +168,28 @@ python -m evaluation.benchmark
 
 ```bash
 python experiments/run_mia.py
+
+### 10. Compare unlearned behavior with the retrained oracle
+
+```bash
+python -m evaluation.unlearning_similarity
+```
+
+This reports prediction agreement, Jensen-Shannon divergence, probability MAE,
+logit cosine similarity, and confidence differences on the retain, forget, and
+test splits. The retrained model is the practical oracle because it was trained
+from scratch without the forget samples.
+
+### 11. Generate evaluation plots
+
+```bash
+python -m evaluation.plot_results
+```
+
+Plots are written under `results/plots/` and are generated only from local
+experiment outputs.
+
+### 12. Run tests
 ```
 
 ### 10. Run tests
@@ -185,6 +207,8 @@ python run.py retrained
 python run.py unlearn
 python run.py benchmark
 python run.py mia
+python run.py similarity
+python run.py plots
 ```
 
 ## Reproducibility
@@ -207,13 +231,21 @@ The membership-inference attack is a **confidence-based black-box baseline**, no
 - [x] Original vs retrained reference models
 - [x] Selective gradient + knowledge-distillation method
 - [x] Confidence-based membership inference baseline
+- [x] Retrained-oracle behavioral similarity evaluation
+- [x] Prediction agreement / JS divergence / probability MAE / logit similarity
+- [x] Runtime/accuracy/MIA plotting utilities
+- [x] Reproducible evaluation tests
 - [ ] Fine-tuning baseline
 - [ ] Plain gradient-ascent baseline
 - [ ] Standalone knowledge-distillation baseline
-- [ ] Forgetting score against the retrained oracle
-- [ ] Runtime/compute comparison plots
 - [ ] Ablation study for forget fraction and gradient threshold
 - [ ] Final experiment dashboard
+
+## Current experiment status
+
+The checked-in implementation supports a complete local MNIST workflow: deterministic splitting, original/retrained reference training, selective-gradient + retain-KD unlearning, benchmark evaluation, confidence-based MIA, retrained-oracle similarity analysis, plotting, and automated tests. Generated checkpoints/results remain local and are intentionally ignored by Git.
+
+For a research report, the remaining optional work is **baseline/ablation expansion** (fine-tuning, plain gradient ascent, standalone KD, and multiple forget fractions/thresholds). These are extensions for comparative study rather than prerequisites for running the proposed method end-to-end.
 
 ## License
 

@@ -22,3 +22,15 @@ def test_kd_loss_is_finite():
 def test_mnist_idx_loader_api():
     assert callable(LocalMNIST)
     assert callable(make_split)
+
+
+def test_similarity_metrics_are_sane():
+    from evaluation.similarity import compare_logits
+
+    a = torch.tensor([[4.0, 1.0], [1.0, 4.0]])
+    b = torch.tensor([[4.0, 1.0], [1.0, 4.0]])
+    metrics = compare_logits(a, b)
+    assert metrics["prediction_agreement"] == 1.0
+    assert abs(metrics["js_divergence"]) < 1e-7
+    assert abs(metrics["probability_mae"]) < 1e-7
+    assert abs(metrics["logit_cosine_similarity"] - 1.0) < 1e-7

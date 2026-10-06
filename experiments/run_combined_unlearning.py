@@ -72,6 +72,8 @@ def main():
                 temperature=cfg["unlearning"]["temperature"],
                 kd_weight=cfg["unlearning"]["kd_weight"],
                 forget_weight=cfg["unlearning"]["forget_weight"],
+                forget_objective=cfg["unlearning"].get("forget_objective", "uniform"),
+                forget_ce_target=cfg["unlearning"].get("forget_ce_target"),
                 gradient_threshold=cfg["unlearning"]["gradient_threshold"],
                 max_grad_norm=cfg["unlearning"]["max_grad_norm"],
                 project_conflicts=cfg["unlearning"].get("project_conflicts", False),
@@ -81,7 +83,7 @@ def main():
         test_metrics = evaluate(model, test_loader, device)
         print(
             f"epoch={epoch + 1:02d} test_acc={test_metrics['accuracy']:.4f} "
-            f"retain_ce={stats['retain_ce']:.4f} forget_uniform={stats['forget_uniform']:.4f} "
+            f"retain_ce={stats['retain_ce']:.4f} forget_loss={stats['forget_loss']:.4f} "
             f"projected={stats['projection_applied']}"
         )
 

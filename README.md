@@ -168,6 +168,7 @@ python -m evaluation.benchmark
 
 ```bash
 python experiments/run_mia.py
+```
 
 ### 10. Compare unlearned behavior with the retrained oracle
 
@@ -190,9 +191,6 @@ Plots are written under `results/plots/` and are generated only from local
 experiment outputs.
 
 ### 12. Run tests
-```
-
-### 10. Run tests
 
 ```bash
 pytest -q
@@ -240,6 +238,24 @@ The membership-inference attack is a **confidence-based black-box baseline**, no
 - [ ] Standalone knowledge-distillation baseline
 - [ ] Ablation study for forget fraction and gradient threshold
 - [ ] Final experiment dashboard
+
+## Verified experiment results
+
+The current local MNIST run used a 10% forget split (6,000 forget / 54,000 retain samples).
+
+| Metric | Original | Retrained | Unlearned |
+|---|---:|---:|---:|
+| Retain accuracy | 98.513% | 98.452% | **98.567%** |
+| Forget accuracy | 98.567% | 97.983% | 98.617% |
+| Test accuracy | 98.200% | 98.090% | **98.230%** |
+| Forget mean confidence | 96.869% | 96.514% | 96.752% |
+| Confidence-MIA ROC-AUC | 0.4955 | 0.4952 | **0.4945** |
+
+The MIA result is a black-box confidence baseline, not a formal privacy guarantee.
+The high forget-set accuracy is not interpreted as proof of failed unlearning because
+the retrained oracle can also correctly classify many forgotten MNIST samples through
+generalization. The oracle-similarity evaluation is therefore part of the final
+workflow.
 
 ## Current experiment status
 

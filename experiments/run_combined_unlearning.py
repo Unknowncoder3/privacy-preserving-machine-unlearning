@@ -74,6 +74,7 @@ def main():
                 forget_weight=cfg["unlearning"]["forget_weight"],
                 forget_objective=cfg["unlearning"].get("forget_objective", "uniform"),
                 forget_ce_target=cfg["unlearning"].get("forget_ce_target"),
+                forget_margin_target=cfg["unlearning"].get("forget_margin_target", 0.0),
                 gradient_threshold=cfg["unlearning"]["gradient_threshold"],
                 max_grad_norm=cfg["unlearning"]["max_grad_norm"],
                 project_conflicts=cfg["unlearning"].get("project_conflicts", False),

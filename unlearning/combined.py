@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn.functional as F
+import math
 
 
 def kd_loss(student_logits, teacher_logits, temperature: float):
@@ -26,6 +27,17 @@ def uniform_forget_loss(logits: torch.Tensor) -> torch.Tensor:
     classes = logits.size(1)
     uniform = torch.full_like(log_probs, 1.0 / classes)
     return F.kl_div(log_probs, uniform, reduction="batchmean")
+
+
+def bounded_ce_forget_loss(logits: torch.Tensor, targets: torch.Tensor, target_ce: float) -> torch.Tensor:
+    """Bounded CE-ascent objective for label-aware forgetting.
+
+    Minimizing negative capped cross-entropy performs gradient ascent on forget
+    samples until their CE reaches target_ce; after that the gradient is zero.
+    """
+    ce = F.cross_entropy(logits, targets, reduction="none")
+    cap = torch.full_like(ce, float(target_ce))
+    return -torch.minimum(ce, cap).mean()
 
 
 def project_conflicting_gradient(
@@ -78,6 +90,8 @@ def selective_forgetting_step(
     temperature=4.0,
     kd_weight=0.5,
     forget_weight=0.1,
+    forget_objective="uniform",
+    forget_ce_target=None,
     gradient_threshold=0.25,
     max_grad_norm=1.0,
     project_conflicts=False,
@@ -94,12 +108,18 @@ def selective_forgetting_step(
     model.train()
     teacher.eval()
     rx, ry = (v.to(device) for v in retain_batch)
-    fx, _ = (v.to(device) for v in forget_batch)
+    fx, fy = (v.to(device) for v in forget_batch)
     criterion = torch.nn.CrossEntropyLoss()
 
     optimizer.zero_grad(set_to_none=True)
     forget_logits = model(fx)
-    forget_loss = uniform_forget_loss(forget_logits)
+    if forget_objective == "uniform":
+        forget_loss = uniform_forget_loss(forget_logits)
+    elif forget_objective == "bounded_ce":
+        target_ce = math.log(forget_logits.size(1)) if forget_ce_target is None else float(forget_ce_target)
+        forget_loss = bounded_ce_forget_loss(forget_logits, fy, target_ce)
+    else:
+        raise ValueError(f"Unknown forget_objective: {forget_objective}")
     forget_grads = torch.autograd.grad(
         forget_loss, tuple(model.parameters()), retain_graph=False, allow_unused=True
     )
@@ -170,7 +190,9 @@ def selective_forgetting_step(
     return {
         "retain_ce": float(retain_ce.detach().item()),
         "retain_kd": float(retain_kd.detach().item()),
-        "forget_uniform": float(forget_loss.detach().item()),
+        "forget_uniform": float(forget_loss.detach().item()) if forget_objective == "uniform" else None,
+        "forget_loss": float(forget_loss.detach().item()),
+        "forget_objective": forget_objective,
         "projection_applied": bool(projected),
         "forget_retain_dot": float(conflict_dot),
     }

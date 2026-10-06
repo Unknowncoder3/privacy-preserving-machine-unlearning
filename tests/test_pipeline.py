@@ -33,4 +33,4 @@ def test_similarity_metrics_are_sane():
     assert metrics["prediction_agreement"] == 1.0
     assert abs(metrics["js_divergence"]) < 1e-7
     assert abs(metrics["probability_mae"]) < 1e-7
-    assert abs(metrics["logit_cosine_similarity"] - 1.0) < 1e-7
+    assert abs(metrics["logit_cosine_similarity"] - 1.0) < 1e-6

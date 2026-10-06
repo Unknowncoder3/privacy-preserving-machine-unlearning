@@ -19,11 +19,11 @@ training:
   num_workers: 0
 
 unlearning:
-  epochs: 3
+  epochs: 5
   batch_size: 128
   learning_rate: 0.0005
   temperature: 4.0
   kd_weight: 0.5
-  forget_weight: 0.05
+  forget_weight: 0.20
   gradient_threshold: 0.25
   max_grad_norm: 1.0

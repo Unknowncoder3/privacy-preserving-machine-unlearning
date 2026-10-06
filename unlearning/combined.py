@@ -1,8 +1,9 @@
-"""Stable selective-gradient + retain-set knowledge-distillation unlearning.
+"""Stable selective-gradient + retain-protected projected forgetting.
 
-The forget objective is a bounded uniform-target objective rather than raw
-cross-entropy ascent. This avoids exploding logits while explicitly reducing
-confidence on the designated forget set.
+The proposed experimental variant keeps the bounded uniform-target forget
+objective, but removes the component of the forget gradient that conflicts
+with the retain objective. This allows stronger forgetting updates without
+deliberately moving against the retain gradient.
 """
 from __future__ import annotations
 
@@ -27,6 +28,46 @@ def uniform_forget_loss(logits: torch.Tensor) -> torch.Tensor:
     return F.kl_div(log_probs, uniform, reduction="batchmean")
 
 
+def project_conflicting_gradient(
+    forget_grads,
+    retain_grads,
+    eps: float = 1e-12,
+):
+    """Remove the retain-conflicting component of a forget gradient.
+
+    Both gradients are gradients of objectives to minimize. If their global
+    dot product is negative, following the forget gradient would increase the
+    retain objective. In that case, remove its projection onto the retain
+    gradient. If they are aligned or orthogonal, leave the forget gradient
+    unchanged.
+    """
+    retain_sq = torch.zeros((), device=next(
+        (g.device for g in retain_grads if g is not None),
+        torch.device("cpu"),
+    ))
+    dot = torch.zeros_like(retain_sq)
+
+    for rg, fg in zip(retain_grads, forget_grads):
+        if rg is not None:
+            retain_sq = retain_sq + rg.detach().pow(2).sum()
+        if rg is not None and fg is not None:
+            dot = dot + (fg.detach() * rg.detach()).sum()
+
+    if dot.item() >= 0.0 or retain_sq.item() <= eps:
+        return [g.detach() if g is not None else None for g in forget_grads], False, float(dot.item())
+
+    coefficient = dot / (retain_sq + eps)
+    projected = []
+    for rg, fg in zip(retain_grads, forget_grads):
+        if fg is None:
+            projected.append(None)
+        elif rg is None:
+            projected.append(fg.detach())
+        else:
+            projected.append(fg.detach() - coefficient * rg.detach())
+    return projected, True, float(dot.item())
+
+
 def selective_forgetting_step(
     model,
     teacher,
@@ -39,15 +80,16 @@ def selective_forgetting_step(
     forget_weight=0.1,
     gradient_threshold=0.25,
     max_grad_norm=1.0,
+    project_conflicts=False,
 ):
     """One stable combined unlearning step.
 
     Retain objective = CE + KD.
     Forget objective = KL(uniform || prediction) on forget samples.
 
-    The forget gradient is selectively masked and normalized to the retain
-    gradient scale, then applied with a small bounded weight. Final gradient
-    clipping prevents a single batch from destabilizing the model.
+    The forget gradient is selectively masked, optionally projected away from
+    the retain-conflicting component, normalized to the retain-gradient scale,
+    and applied with a bounded weight. Final clipping prevents instability.
     """
     model.train()
     teacher.eval()
@@ -55,7 +97,6 @@ def selective_forgetting_step(
     fx, _ = (v.to(device) for v in forget_batch)
     criterion = torch.nn.CrossEntropyLoss()
 
-    # Forget-sensitive gradient.
     optimizer.zero_grad(set_to_none=True)
     forget_logits = model(fx)
     forget_loss = uniform_forget_loss(forget_logits)
@@ -72,7 +113,6 @@ def selective_forgetting_step(
         threshold = torch.quantile(g.detach().abs().flatten(), q)
         masks.append((g.detach().abs() >= threshold).to(g.dtype))
 
-    # Retain objective.
     optimizer.zero_grad(set_to_none=True)
     student_logits = model(rx)
     with torch.no_grad():
@@ -84,19 +124,32 @@ def selective_forgetting_step(
         retain_loss, tuple(model.parameters()), retain_graph=False, allow_unused=True
     )
 
-    # Match the masked forget gradient to the retain-gradient scale.
-    retain_sq = torch.zeros((), device=device)
-    forget_sq = torch.zeros((), device=device)
     masked_forget = []
-    for rg, fg, mask in zip(retain_grads, forget_grads, masks):
-        if rg is not None:
-            retain_sq = retain_sq + rg.detach().pow(2).sum()
+    forget_sq = torch.zeros((), device=device)
+    for fg, mask in zip(forget_grads, masks):
         if fg is not None and mask is not None:
             mfg = fg.detach() * mask
             masked_forget.append(mfg)
             forget_sq = forget_sq + mfg.pow(2).sum()
         else:
             masked_forget.append(None)
+
+    projected = False
+    conflict_dot = 0.0
+    if project_conflicts:
+        masked_forget, projected, conflict_dot = project_conflicting_gradient(
+            masked_forget, retain_grads
+        )
+
+    retain_sq = torch.zeros((), device=device)
+    for rg in retain_grads:
+        if rg is not None:
+            retain_sq = retain_sq + rg.detach().pow(2).sum()
+
+    forget_sq = torch.zeros((), device=device)
+    for mfg in masked_forget:
+        if mfg is not None:
+            forget_sq = forget_sq + mfg.pow(2).sum()
 
     scale = torch.sqrt(retain_sq + 1e-12) / torch.sqrt(forget_sq + 1e-12)
 
@@ -118,4 +171,6 @@ def selective_forgetting_step(
         "retain_ce": float(retain_ce.detach().item()),
         "retain_kd": float(retain_kd.detach().item()),
         "forget_uniform": float(forget_loss.detach().item()),
+        "projection_applied": bool(projected),
+        "forget_retain_dot": float(conflict_dot),
     }
